@@ -3,26 +3,55 @@ import { Navbar } from './components/Navbar';
 import { PDFUpload } from './components/PDFUpload';
 import { QuerySection } from './components/QuerySection';
 import { Toaster, toast } from 'react-hot-toast';
+import axios from 'axios'; // Import axios
 
 function App() {
   const [isUploading, setIsUploading] = useState(false);
   const [isQuerying, setIsQuerying] = useState(false);
   const [response, setResponse] = useState<string | null>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [filePath, setFilePath] = useState<string | null>(null); // Store file path
 
   const handleFileUpload = async (file: File) => {
     setIsUploading(true);
     try {
-      // Simulate file upload
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      const formData = new FormData();
+      formData.append('file', file);
+  
+      // Step 1: Send file to Flask backend for upload and get file path
+      const uploadResponse = await axios.post('http://127.0.0.1:5000/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+  
+      console.log('Upload Response:', uploadResponse.data); // Log the upload response to see the file path
+  
+      const uploadedFilePath = uploadResponse.data.file_path;
+      if (!uploadedFilePath) {
+        toast.error('Failed to get file path from server');
+        return;
+      }
+  
       setUploadedFile(file);
+      setFilePath(uploadedFilePath); // Save the file path
       toast.success('PDF uploaded successfully!');
+  
+      // Step 2: Automatically call /populate to update the database with the file path
+      const populateResponse = await axios.post('http://127.0.0.1:5000/populate', {
+        file_path: uploadedFilePath, // Send file path
+      });
+  
+      console.log('Populate Response:', populateResponse.data); // Log the populate response
+      toast.success('Database updated successfully!');
     } catch (error) {
-      toast.error('Failed to upload PDF');
+      console.error('Error uploading file:', error);
+      toast.error('Failed to upload PDF and update database');
     } finally {
       setIsUploading(false);
     }
   };
+  
 
   const handleQuery = async (query: string) => {
     if (!uploadedFile) {
@@ -32,9 +61,11 @@ function App() {
 
     setIsQuerying(true);
     try {
-      // Simulate query processing
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      setResponse('This is a simulated response to your query. In a real application, this would be the actual response from processing your question against the uploaded PDF content.');
+      // Send query to Flask backend
+      const response = await axios.post('http://127.0.0.1:5000/query', {
+        query: query
+      });
+      setResponse(response.data.response); // Set the response from Flask API
     } catch (error) {
       toast.error('Failed to process query');
     } finally {
