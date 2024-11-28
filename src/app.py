@@ -7,22 +7,38 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter  # Previous i
 from langchain.schema.document import Document
 from get_embedding_function import get_embedding_function
 from langchain.vectorstores.chroma import Chroma
+
 # Directories for file storage and Chroma database
 UPLOAD_FOLDER = 'uploads'
 CHROMA_PATH = "chroma"
 DATA_PATH = "uploads"
 app = Flask(__name__)
+
 # Make sure uploads folder exists
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
+
 # Allowed file extensions for PDF uploads
 ALLOWED_EXTENSIONS = {'pdf'}
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# Function to clear the uploads folder
+def clear_uploads_folder():
+    for filename in os.listdir(UPLOAD_FOLDER):
+        file_path = os.path.join(UPLOAD_FOLDER, filename)
+        if os.path.isfile(file_path):
+            os.remove(file_path)  # Remove the file
+            print(f"Removed file: {file_path}")
+
 # Endpoint for file upload
 @app.route('/upload', methods=['POST'])
 def upload_file():
     try:
+        # Clear the uploads folder before saving the new file
+        clear_uploads_folder()
+        
         file = request.files.get('file')  # Get the uploaded file
         if not file or not allowed_file(file.filename):
             return jsonify({"error": "No file uploaded or invalid file format"}), 400
@@ -45,6 +61,7 @@ def upload_file():
     except Exception as e:
         print(f"Error uploading file: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
 # Function to process PDF and add its content to Chroma database
 def process_pdf_to_chroma(file_path):
     try:
@@ -54,10 +71,12 @@ def process_pdf_to_chroma(file_path):
         add_to_chroma(chunks)
     except Exception as e:
         print(f"Error processing PDF to Chroma: {str(e)}")
+
 # Load documents (PDF)
 def load_documents(file_path):
     document_loader = PyPDFDirectoryLoader(DATA_PATH)  # Assuming PDF is in 'data' folder
     return document_loader.load()
+
 # Split documents into smaller chunks
 def split_documents(documents: list[Document]):
     text_splitter = RecursiveCharacterTextSplitter(
@@ -67,6 +86,7 @@ def split_documents(documents: list[Document]):
         is_separator_regex=False,
     )
     return text_splitter.split_documents(documents)
+
 # Add chunks to Chroma database
 def add_to_chroma(chunks: list[Document]):
     # Initialize Chroma DB
@@ -87,6 +107,7 @@ def add_to_chroma(chunks: list[Document]):
         db.persist()
     else:
         print("No new documents to add.")
+
 # Calculate chunk IDs for each document
 def calculate_chunk_ids(chunks):
     last_page_id = None
@@ -103,6 +124,7 @@ def calculate_chunk_ids(chunks):
         last_page_id = current_page_id
         chunk.metadata["id"] = chunk_id
     return chunks
+
 # Clear Chroma database
 @app.route('/reset_chroma', methods=['POST'])
 def reset_chroma():
@@ -112,6 +134,7 @@ def reset_chroma():
         return jsonify({"message": "Chroma database cleared successfully!"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 # Clear the Chroma database directory
 def clear_database():
     if os.path.exists(CHROMA_PATH):
