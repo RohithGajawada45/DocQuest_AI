@@ -26,34 +26,47 @@ ALLOWED_EXTENSIONS = {'pdf'}
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# Endpoint for file upload
 @app.route('/upload', methods=['POST'])
 def upload_file():
     try:
+        # Clear files in the uploads folder before processing
+        clear_uploads_folder()
+
         file = request.files.get('file')  # Get the uploaded file
         if not file or not allowed_file(file.filename):
             return jsonify({"error": "No file uploaded or invalid file format"}), 400
-        
+
         # Secure the filename and save the file
         filename = secure_filename(file.filename)
         file_path = os.path.join(UPLOAD_FOLDER, filename)
         file.save(file_path)
-        
+
         # Log the file path for debugging
         print(f"File uploaded to: {file_path}")
-        
+
         # Clear the existing Chroma database
         clear_database()
-        
+
         # Process the uploaded file for embeddings and store in Chroma
         process_pdf_to_chroma(file_path)
-        
+
         return jsonify({"message": "File uploaded and processed successfully", "file_path": file_path}), 200
 
     except Exception as e:
         print(f"Error uploading file: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+
+def clear_uploads_folder():
+    if os.path.exists(UPLOAD_FOLDER):
+        for file_name in os.listdir(UPLOAD_FOLDER):
+            file_path = os.path.join(UPLOAD_FOLDER, file_name)
+            try:
+                if os.path.isfile(file_path):
+                    os.remove(file_path)
+                    print(f"Deleted: {file_path}")
+            except Exception as e:
+                print(f"Error deleting file {file_path}: {str(e)}")
 
 
 # Function to process PDF and add its content to Chroma database
@@ -142,12 +155,38 @@ def reset_chroma():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
-# Clear the Chroma database directory
 def clear_database():
     if os.path.exists(CHROMA_PATH):
         shutil.rmtree(CHROMA_PATH)
         print("Chroma database cleared.")
+    # Recreate the directory to avoid connection errors
+    os.makedirs(CHROMA_PATH, exist_ok=True)
+
+@app.route('/query', methods=['POST'])
+def query():
+    try:
+        data = request.get_json()
+        user_query = data.get("query")
+        if not user_query:
+            return jsonify({"error": "Query parameter is required"}), 400
+        
+        # Replace this with your query processing logic
+        response = process_query(user_query)
+        return jsonify({"response": response}), 200
+    except Exception as e:
+        print(f"Error in query endpoint: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+def process_query(query):
+    # Fetch the relevant chunks from Chroma based on the query
+    db = Chroma(persist_directory=CHROMA_PATH, embedding_function=get_embedding_function())
+    
+    # Query the Chroma DB and retrieve the results
+    results = db.query(query)
+    
+    # Process and return the results (e.g., top-k results or summarized information)
+    return results
+
 
 
 if __name__ == '__main__':
