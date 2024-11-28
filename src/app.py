@@ -3,10 +3,12 @@ import os
 import shutil
 from werkzeug.utils import secure_filename
 from langchain.document_loaders.pdf import PyPDFDirectoryLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter  # Previous import, needs fixing
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema.document import Document
 from get_embedding_function import get_embedding_function
 from langchain.vectorstores.chroma import Chroma
+from langchain.prompts import ChatPromptTemplate
+from langchain_community.llms.ollama import Ollama
 
 # Directories for file storage and Chroma database
 UPLOAD_FOLDER = 'uploads'
@@ -140,6 +142,50 @@ def clear_database():
     if os.path.exists(CHROMA_PATH):
         shutil.rmtree(CHROMA_PATH)
         print("Chroma database cleared.")
+
+# Define PROMPT_TEMPLATE
+PROMPT_TEMPLATE = """
+Answer the question based only on the following context:
+
+{context}
+
+---
+
+Answer the question based on the above context: {question}
+"""
+
+# Endpoint to query Chroma DB and get response
+@app.route('/query', methods=['POST'])
+def query_chroma():
+    try:
+        query_text = request.json.get('query_text')
+        if not query_text:
+            return jsonify({"error": "No query text provided"}), 400
+
+        response_text = query_rag(query_text)
+        return jsonify({"response": response_text}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+def query_rag(query_text: str):
+    # Prepare the DB.
+    embedding_function = get_embedding_function()
+    db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
+
+    # Search the DB.
+    results = db.similarity_search_with_score(query_text, k=5)
+
+    context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results])
+    prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
+    prompt = prompt_template.format(context=context_text, question=query_text)
+
+    model = Ollama(model="mistral")
+    response_text = model.invoke(prompt)
+
+    sources = [doc.metadata.get("id", None) for doc, _score in results]
+    formatted_response = f"Response: {response_text}\nSources: {sources}"
+    print(formatted_response)
+    return response_text
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
