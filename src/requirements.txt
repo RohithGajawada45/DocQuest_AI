@@ -1,8 +1,10 @@
-pypdf
-langchain
-chromadb # Vector storage
-pytest
-boto3
 flask
 flask-cors
+werkzeug
+langchain
 langchain-community
+chromadb
+ollama
+pypdf
+shutil
+os
