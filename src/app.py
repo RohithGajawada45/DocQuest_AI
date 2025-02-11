@@ -1,24 +1,31 @@
 from flask import Flask, request, jsonify
 import os
+from flask_cors import CORS
 import shutil
 from werkzeug.utils import secure_filename
-from langchain.document_loaders.pdf import PyPDFDirectoryLoader
+from langchain.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema.document import Document
 from get_embedding_function import get_embedding_function
 from langchain.vectorstores.chroma import Chroma
 from langchain.prompts import ChatPromptTemplate
 from langchain_community.llms.ollama import Ollama
+import chromadb  # Ensure ChromaDB is installed
+
+# Disable parallelism warnings
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # Directories for file storage and Chroma database
-UPLOAD_FOLDER = 'uploads'
-CHROMA_PATH = "chroma"
-DATA_PATH = "uploads"
-app = Flask(__name__)
+UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
+CHROMA_PATH = "chroma_db"  # Renamed for clarity
 
-# Make sure uploads folder exists
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+app = Flask(__name__)
+CORS(app)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# Ensure necessary directories exist
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(CHROMA_PATH, exist_ok=True)
 
 # Allowed file extensions for PDF uploads
 ALLOWED_EXTENSIONS = {'pdf'}
@@ -26,91 +33,108 @@ ALLOWED_EXTENSIONS = {'pdf'}
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+# Initialize ChromaDB with Persistent Storage
+chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
+collection_name = "documents"
+
+# Ensure the collection exists
+if collection_name not in [c.name for c in chroma_client.list_collections()]:
+    collection = chroma_client.create_collection(name=collection_name)
+else:
+    collection = chroma_client.get_collection(name=collection_name)
+
+@app.route('/check-uploads', methods=['GET'])
+def check_uploads():
+    try:
+        pdf_files = [f for f in os.listdir(UPLOAD_FOLDER) if f.lower().endswith('.pdf')]
+        if not pdf_files:
+            return jsonify({"message": "No PDFs found"}), 404
+        return jsonify({"files": pdf_files})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # Function to clear the uploads folder
 def clear_uploads_folder():
-    for filename in os.listdir(UPLOAD_FOLDER):
-        file_path = os.path.join(UPLOAD_FOLDER, filename)
-        if os.path.isfile(file_path):
-            os.remove(file_path)  # Remove the file
-            print(f"Removed file: {file_path}")
+    try:
+        print("⚠️ Clearing uploads folder")
+        for filename in os.listdir(UPLOAD_FOLDER):
+            file_path = os.path.join(UPLOAD_FOLDER, filename)
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.unlink(file_path)  # Remove file/link
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)  # Remove directory
+        print("🗑️ Uploads folder cleared.")
+    except Exception as e:
+        print(f"❌ Error clearing uploads folder: {str(e)}")
 
-# Endpoint for file upload
+# Function to clear Chroma database
+def clear_database():
+    global collection
+    try:
+        print("⚠️ Clearing Chroma Database")
+        chroma_client.delete_collection(collection_name)
+        collection = chroma_client.create_collection(name=collection_name)
+        print("🗑️ Chroma database cleared and reinitialized.")
+    except Exception as e:
+        print(f"❌ Error clearing Chroma database: {str(e)}")
+
+# Updated file upload endpoint
 @app.route('/upload', methods=['POST'])
 def upload_file():
     try:
-        # Clear the uploads folder before saving the new file
-        clear_uploads_folder()
-        
-        file = request.files.get('file')  # Get the uploaded file
+        file = request.files.get('file')
         if not file or not allowed_file(file.filename):
             return jsonify({"error": "No file uploaded or invalid file format"}), 400
         
-        # Secure the filename and save the file
         filename = secure_filename(file.filename)
+
+        # 1️⃣ Clear previous files
+        clear_uploads_folder()
+
+        # 2️⃣ Save the new file
         file_path = os.path.join(UPLOAD_FOLDER, filename)
         file.save(file_path)
-        
-        # Log the file path for debugging
-        print(f"File uploaded to: {file_path}")
-        
-        # Clear the existing Chroma database
+        print(f"✅ File uploaded: {file_path}")
+
+        # 3️⃣ Clear Chroma database
         clear_database()
-        
-        # Process the uploaded file for embeddings and store in Chroma
+
+        # 4️⃣ Process and store new file in Chroma
         process_pdf_to_chroma(file_path)
-        
+
         return jsonify({"message": "File uploaded and processed successfully", "file_path": file_path}), 200
     except Exception as e:
-        print(f"Error uploading file: {str(e)}")
+        print(f"❌ Error uploading file: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-# Function to process PDF and add its content to Chroma database
+
 def process_pdf_to_chroma(file_path):
     try:
-        # Load and split documents from the uploaded PDF
         documents = load_documents(file_path)
         chunks = split_documents(documents)
         add_to_chroma(chunks)
     except Exception as e:
-        print(f"Error processing PDF to Chroma: {str(e)}")
+        print(f"❌ Error processing PDF to Chroma: {str(e)}")
 
-# Load documents (PDF)
 def load_documents(file_path):
-    document_loader = PyPDFDirectoryLoader(DATA_PATH)  # Assuming PDF is in 'data' folder
-    return document_loader.load()
+    loader = PyPDFLoader(file_path)
+    return loader.load()
 
-# Split documents into smaller chunks
 def split_documents(documents: list[Document]):
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=800,
-        chunk_overlap=80,
-        length_function=len,
-        is_separator_regex=False,
-    )
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=80, length_function=len)
     return text_splitter.split_documents(documents)
 
-# Add chunks to Chroma database
 def add_to_chroma(chunks: list[Document]):
-    # Initialize Chroma DB
-    db = Chroma(
-        persist_directory=CHROMA_PATH, embedding_function=get_embedding_function()
-    )
-    # Calculate Page IDs
+    db = Chroma(persist_directory=CHROMA_PATH, embedding_function=get_embedding_function())
     chunks_with_ids = calculate_chunk_ids(chunks)
-    # Get existing items and check for new chunks
     existing_items = db.get(include=[])
     existing_ids = set(existing_items["ids"])
-    print(f"Existing documents in DB: {len(existing_ids)}")
     new_chunks = [chunk for chunk in chunks_with_ids if chunk.metadata["id"] not in existing_ids]
     if new_chunks:
-        print(f"Adding new documents: {len(new_chunks)}")
         new_chunk_ids = [chunk.metadata["id"] for chunk in new_chunks]
         db.add_documents(new_chunks, ids=new_chunk_ids)
         db.persist()
-    else:
-        print("No new documents to add.")
 
-# Calculate chunk IDs for each document
 def calculate_chunk_ids(chunks):
     last_page_id = None
     current_chunk_index = 0
@@ -122,28 +146,18 @@ def calculate_chunk_ids(chunks):
             current_chunk_index += 1
         else:
             current_chunk_index = 0
-        chunk_id = f"{current_page_id}:{current_chunk_index}"
+        chunk.metadata["id"] = f"{current_page_id}:{current_chunk_index}"
         last_page_id = current_page_id
-        chunk.metadata["id"] = chunk_id
     return chunks
 
-# Clear Chroma database
 @app.route('/reset_chroma', methods=['POST'])
 def reset_chroma():
     try:
-        print("Clearing Chroma Database")
-        clear_database()
+        chroma_client.delete_collection(collection_name)
         return jsonify({"message": "Chroma database cleared successfully!"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Clear the Chroma database directory
-def clear_database():
-    if os.path.exists(CHROMA_PATH):
-        shutil.rmtree(CHROMA_PATH)
-        print("Chroma database cleared.")
-
-# Define PROMPT_TEMPLATE
 PROMPT_TEMPLATE = """
 Answer the question based only on the following context:
 
@@ -154,37 +168,26 @@ Answer the question based only on the following context:
 Answer the question based on the above context: {question}
 """
 
-# Endpoint to query Chroma DB and get response
 @app.route('/query', methods=['POST'])
 def query_chroma():
     try:
         query_text = request.json.get('query_text')
         if not query_text:
             return jsonify({"error": "No query text provided"}), 400
-
         response_text = query_rag(query_text)
         return jsonify({"response": response_text}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 def query_rag(query_text: str):
-    # Prepare the DB.
     embedding_function = get_embedding_function()
     db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
-
-    # Search the DB.
     results = db.similarity_search_with_score(query_text, k=5)
-
     context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results])
     prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
     prompt = prompt_template.format(context=context_text, question=query_text)
-
     model = Ollama(model="mistral")
     response_text = model.invoke(prompt)
-
-    sources = [doc.metadata.get("id", None) for doc, _score in results]
-    formatted_response = f"Response: {response_text}\nSources: {sources}"
-    print(formatted_response)
     return response_text
 
 if __name__ == '__main__':
