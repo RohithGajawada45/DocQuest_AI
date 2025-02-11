@@ -47,6 +47,11 @@ if collection_name not in chroma_client.list_collections():
 else:
     collection = chroma_client.get_collection(name=collection_name)
 
+@app.route('/')
+def home():
+    return "Flask App is Running!"
+
+
 @app.route('/check-uploads', methods=['GET'])
 def check_uploads():
     try:
@@ -195,6 +200,7 @@ def query_rag(query_text: str):
     return response_text
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 5000))  # Use PORT from environment, default to 5000
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
+
     app.run(host="0.0.0.0", port=port, debug=True)
 
