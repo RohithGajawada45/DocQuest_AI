@@ -3,11 +3,13 @@ import os
 from flask_cors import CORS
 import shutil
 from werkzeug.utils import secure_filename
-from langchain.document_loaders import PyPDFLoader
+# from langchain.document_loaders import PyPDFLoader
+from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema.document import Document
 from get_embedding_function import get_embedding_function
-from langchain.vectorstores.chroma import Chroma
+# from langchain.vectorstores.chroma import Chroma
+from langchain_community.vectorstores import Chroma
 from langchain.prompts import ChatPromptTemplate
 from langchain_community.llms.ollama import Ollama
 import chromadb  # Ensure ChromaDB is installed
@@ -38,7 +40,9 @@ chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
 collection_name = "documents"
 
 # Ensure the collection exists
-if collection_name not in [c.name for c in chroma_client.list_collections()]:
+# if collection_name not in [c.name for c in chroma_client.list_collections()]:
+#     collection = chroma_client.create_collection(name=collection_name)
+if collection_name not in chroma_client.list_collections():
     collection = chroma_client.create_collection(name=collection_name)
 else:
     collection = chroma_client.get_collection(name=collection_name)
