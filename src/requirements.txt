@@ -5,3 +5,4 @@ pytest
 boto3
 flask
 flask-cors
+langchain-community
