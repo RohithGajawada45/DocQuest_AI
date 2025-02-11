@@ -194,5 +194,7 @@ def query_rag(query_text: str):
     response_text = model.invoke(prompt)
     return response_text
 
-if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 5000))  # Use PORT from environment, default to 5000
+    app.run(host="0.0.0.0", port=port, debug=True)
+
