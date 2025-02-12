@@ -43,11 +43,11 @@ collection_name = "documents"
 # if collection_name not in [c.name for c in chroma_client.list_collections()]:
 #     collection = chroma_client.create_collection(name=collection_name)
 
-collection_names = [c.name for c in chroma_client.list_collections()]
-if collection_name not in collection_names:
+if collection_name not in chroma_client.list_collections():
     collection = chroma_client.create_collection(name=collection_name)
 else:
-    collection = chroma_client.get_collection(name=collection_name)
+    collection = chroma_client.get_collection(collection_name)  # No `name=` required
+
 
 @app.route('/')
 def home():
