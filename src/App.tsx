@@ -16,7 +16,7 @@ function App() {
   useEffect(() => {
     const checkExistingFiles = async () => {
       try {
-        const response = await axios.get('http://127.0.0.1:5000/check-uploads'); // New API
+        const response = await axios.get('https://docquest-ai.onrender.com/check-uploads'); // New API
         if (response.data.files.length > 0) {
           setFilePath(response.data.files[0]); // Set first file as default
           toast.success('Existing PDF found!');
@@ -36,7 +36,7 @@ function App() {
       formData.append('file', file);
 
       // Step 1: Send file to Flask backend for upload
-      const uploadResponse = await axios.post('http://127.0.0.1:5000/upload', formData, {
+      const uploadResponse = await axios.post('https://docquest-ai.onrender.com/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -55,7 +55,7 @@ function App() {
       toast.success('PDF uploaded successfully!');
 
       // Step 2: Automatically call /populate to update the database
-      const populateResponse = await axios.post('http://127.0.0.1:5000/populate', {
+      const populateResponse = await axios.post('https://docquest-ai.onrender.com/populate', {
         file_path: uploadedFilePath, 
       });
 
@@ -79,7 +79,7 @@ function App() {
   
     setIsQuerying(true);
     try {
-      const response = await axios.post('http://127.0.0.1:5000/query', {
+      const response = await axios.post('https://docquest-ai.onrender.com/query', {
         query_text: query,
       });
   
