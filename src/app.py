@@ -42,7 +42,9 @@ collection_name = "documents"
 # Ensure the collection exists
 # if collection_name not in [c.name for c in chroma_client.list_collections()]:
 #     collection = chroma_client.create_collection(name=collection_name)
-if collection_name not in chroma_client.list_collections():
+
+collection_names = [c.name for c in chroma_client.list_collections()]
+if collection_name not in collection_names:
     collection = chroma_client.create_collection(name=collection_name)
 else:
     collection = chroma_client.get_collection(name=collection_name)
@@ -136,7 +138,7 @@ def split_documents(documents: list[Document]):
 def add_to_chroma(chunks: list[Document]):
     db = Chroma(persist_directory=CHROMA_PATH, embedding_function=get_embedding_function())
     chunks_with_ids = calculate_chunk_ids(chunks)
-    existing_items = db.get(include=[])
+    existing_items = db.get()
     existing_ids = set(existing_items["ids"])
     new_chunks = [chunk for chunk in chunks_with_ids if chunk.metadata["id"] not in existing_ids]
     if new_chunks:
@@ -200,7 +202,5 @@ def query_rag(query_text: str):
     return response_text
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
-
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
 
